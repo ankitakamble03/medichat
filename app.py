@@ -1,76 +1,105 @@
-import streamlit as st
 import openai
+import streamlit as st
 from utils import (
-    process_pdf, get_vector_store, create_conversational_chain,
-    analyze_hydration, analyze_sleep, get_diet_suggestions
+    analyze_hydration,
+    analyze_sleep,
+    get_diet_suggestions,
+    process_pdf,
+    get_vector_store,
+    create_conversational_chain
 )
 
+
+# Page config
 st.set_page_config(page_title="MediChat AI", layout="wide")
 
-# Sidebar: OpenAI Key
-api_key = st.sidebar.text_input("🔑 Enter OpenAI API Key", type="password")
-if api_key:
-    openai.api_key = api_key
+# Sidebar: API key input
+st.sidebar.title("🔐 API Key")
+api_key = st.sidebar.text_input("Enter your OpenAI API Key", type="password")
 
-# Sidebar Navigation with icons (using emojis)
-st.sidebar.title("📋 Navigation")
-menu = {
-    "🏥 General Health Chat": "general",
-    "💧 Hydration Tracker": "hydration",
-    "😴 Sleep Tracker": "sleep",
-    "🥗 Diet Recommendation": "diet",
-    "📄 Medical Report (PDF) Chat": "pdf"
-}
-choice = st.sidebar.radio("Go to:", list(menu.keys()))
+# Sidebar: Navigation
+st.sidebar.title("🩺 MediChat Navigation")
+page = st.sidebar.radio("Go to", ["💧 Hydration", "🌙 Sleep", "🥗 Diet", "📄 PDF Chat", "📊 BMI Calculator"])
 
-# Map choice to function
-page = menu[choice]
-
-st.title("🤖 MediChat AI - Your Health Companion")
-
-if page == "general":
-    st.header("🏥 General Health Chat")
-    query = st.text_input("Ask your health question:")
-    if query and api_key:
-        with st.spinner("Thinking..."):
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": query}]
-            )
-            st.success(response.choices[0].message.content)
-
-elif page == "hydration":
-    st.header("💧 Hydration Tracker")
-    glasses = st.number_input("How many glasses of water did you drink today?", 0, 20, 8)
+# --- Hydration Tab ---
+if page == "💧 Hydration":
+    st.title("💧 Hydration Tracker")
+    glasses = st.slider("How many glasses of water did you drink today?", 0, 20, 8)
     if st.button("Analyze Hydration"):
-        feedback = analyze_hydration(glasses)
-        st.success(feedback)
+        result = analyze_hydration(glasses)
+        st.success(result)
 
-elif page == "sleep":
-    st.header("😴 Sleep Tracker")
-    hours = st.slider("How many hours did you sleep last night?", 0, 24, 7)
+# --- Sleep Tab ---
+elif page == "🌙 Sleep":
+    st.title("🌙 Sleep Tracker")
+    hours = st.slider("How many hours did you sleep last night?", 0, 12, 7)
     if st.button("Analyze Sleep"):
-        feedback = analyze_sleep(hours)
-        st.success(feedback)
+        result = analyze_sleep(hours)
+        st.success(result)
 
-elif page == "diet":
-    st.header("🥗 Diet Recommendation")
-    glasses = st.number_input("Water intake (glasses)", 0, 20, 8, key="diet_water")
-    sleep = st.slider("Sleep duration (hours)", 0, 24, 7, key="diet_sleep")
-    if st.button("Get Diet Plan"):
-        diet_advice = get_diet_suggestions(glasses, sleep)
-        st.success(diet_advice)
+# --- Diet Tab ---
+elif page == "🥗 Diet":
+    st.title("🥗 Diet Suggestions")
+    st.write("Get personalized diet tips based on hydration and sleep.")
+    water = st.slider("Water Intake (glasses)", 0, 20, 8, key="diet_water")
+    sleep = st.slider("Sleep Duration (hours)", 0, 12, 7, key="diet_sleep")
+    if st.button("Get Diet Tips"):
+        tips = get_diet_suggestions(water, sleep)
+        st.info(tips)
 
-elif page == "pdf":
-    st.header("📄 Medical Report (PDF) Chat")
-    pdf_file = st.file_uploader("Upload your medical report (PDF)", type="pdf")
-    if pdf_file and api_key:
-        with st.spinner("Processing PDF..."):
-            chunks = process_pdf(pdf_file)
-            vector_store = get_vector_store(chunks)
-            chain = create_conversational_chain(vector_store, api_key)
-        question = st.text_input("Ask something about your report:")
-        if question:
-            with st.spinner("Analyzing..."):
-                response = chain.invoke({"question": question, "chat_history": []})
-                st.success(response["answer"])
+# --- PDF Chat Tab ---
+elif page == "📄 PDF Chat":
+    st.title("📄 Medical Report Assistant")
+
+    if not api_key:
+        st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
+    else:
+        uploaded_file = st.file_uploader("Upload your medical PDF", type="pdf")
+        if uploaded_file:
+            st.success("✅ PDF uploaded and processed.")
+            chunks = process_pdf(uploaded_file)
+            vectorstore = get_vector_store(chunks, api_key)
+            qa_chain = create_conversational_chain(vectorstore, api_key)
+
+            st.write("💬 Ask questions about your medical report:")
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+
+            # Helper to remove emojis and non-ASCII
+def clean_text(text):
+    return ''.join(c for c in text if ord(c) < 128)
+
+query = st.text_input("Ask a question")
+if query:
+    with st.spinner("Thinking..."):
+        # Clean query and chat history
+        clean_query = clean_text(query)
+        clean_history = [(clean_text(q), clean_text(a)) for q, a in st.session_state.chat_history]
+
+        # Run clean input
+        answer = qa_chain.run({"question": clean_query, "chat_history": clean_history})
+
+        # Append original (not cleaned) query and answer to display
+        st.session_state.chat_history.append((query, answer))
+        st.success(answer)
+
+# --- BMI Tab ---
+elif page == "📊 BMI Calculator":
+    st.title("📊 Body Mass Index (BMI) Calculator")
+
+    height_cm = st.number_input("Enter your height (in cm)", min_value=50, max_value=250, value=165)
+    weight_kg = st.number_input("Enter your weight (in kg)", min_value=20, max_value=300, value=60)
+
+    if st.button("Calculate BMI"):
+        height_m = height_cm / 100
+        bmi = weight_kg / (height_m ** 2)
+        st.info(f"Your BMI is **{bmi:.2f}**")
+
+        if bmi < 18.5:
+            st.warning("You are underweight.")
+        elif 18.5 <= bmi < 24.9:
+            st.success("You have a healthy weight.")
+        elif 25 <= bmi < 29.9:
+            st.warning("You are overweight.")
+        else:
+            st.error("You are in the obese range.")
