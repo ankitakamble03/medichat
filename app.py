@@ -1,6 +1,6 @@
 import openai
 import streamlit as st
-from utils import (
+from utils.utils import (
     analyze_hydration,
     analyze_sleep,
     get_diet_suggestions,
