@@ -8,7 +8,7 @@ from langchain.chat_models import ChatOpenAI
 import openai
 import time
 import openai
-from openai.error import RateLimitError, OpenAIError
+from openai import OpenAIError, RateLimitError, AuthenticationError
 
 def openai_chat_completion_with_fallback(prompt, api_key, max_retries=3, wait_seconds=10):
     openai.api_key = api_key
