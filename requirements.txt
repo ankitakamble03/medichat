@@ -7,3 +7,4 @@ faiss-cpu
 tiktoken
 google-generativeai
 streamlit
+protobuf==3.20.3

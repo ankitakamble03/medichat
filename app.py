@@ -1,5 +1,7 @@
 import openai
 import streamlit as st
+import os
+from google.generativeai import client as genai
 from utils.utils import (
     analyze_hydration,
     analyze_sleep,
@@ -8,7 +10,24 @@ from utils.utils import (
     get_vector_store,
     create_conversational_chain
 )
+# Initialize Gemini client once (pass your API key)
+def init_gemini(api_key):
+    genai.configure(api_key=api_key)
 
+# Gemini chat completion function with conversation history
+def gemini_chat_completion(prompt, chat_history):
+    # Gemini expects messages as [{'author': 'user'/'bot', 'content': 'text'}]
+    messages = []
+    for q, a in chat_history:
+        messages.append({"author": "user", "content": q})
+        messages.append({"author": "bot", "content": a})
+    messages.append({"author": "user", "content": prompt})
+
+    response = genai.chat.completions.create(
+        model="models/chat-bison-001",
+        messages=messages,
+    )
+    return response.candidates[0].content
 
 # Page config
 st.set_page_config(page_title="MediChat AI", layout="wide")
@@ -48,23 +67,34 @@ elif page == "🥗 Diet":
         st.info(tips)
 
 # --- PDF Chat Tab ---
+# --- Replace this block inside your PDF Chat tab ---
+
 elif page == "📄 PDF Chat":
     st.title("📄 Medical Report Assistant")
 
     if not api_key:
-        st.warning("Please enter your OpenAI API key in the sidebar to use this feature.")
+        st.warning("Please enter your Gemini API key in the sidebar to use this feature.")
     else:
+        init_gemini(api_key)
+
         uploaded_file = st.file_uploader("Upload your medical PDF", type="pdf")
         if uploaded_file:
             st.success("✅ PDF uploaded and processed.")
-            chunks = process_pdf(uploaded_file)
-            vectorstore = get_vector_store(chunks, api_key)
-            qa_chain = create_conversational_chain(vectorstore, api_key)
+            chunks = process_pdf(uploaded_file)  # from your utils
+            vectorstore = get_vector_store(chunks)  # same or adapt for Gemini embeddings later
+            qa_chain = create_conversational_chain(vectorstore)  # or adapt if needed
 
             st.write("💬 Ask questions about your medical report:")
+
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
 
+            query = st.text_input("Ask a question")
+            if query:
+                with st.spinner("Thinking..."):
+                    answer = gemini_chat_completion(query, st.session_state.chat_history)
+                    st.session_state.chat_history.append((query, answer))
+                    st.success(answer)
             # Helper to remove emojis and non-ASCII
 def clean_text(text):
     return ''.join(c for c in text if ord(c) < 128)

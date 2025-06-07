@@ -1,47 +1,48 @@
-
-
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.chains import ConversationalRetrievalChain
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.language_models.chat_models import BaseChatModel
+
 import tempfile
-from langchain.chat_models import ChatOpenAI
-import openai
 import time
-import openai
-from openai.error import RateLimitError, OpenAIError
 
-def openai_chat_completion_with_fallback(prompt, api_key, max_retries=3, wait_seconds=10):
-    openai.api_key = api_key
-    for attempt in range(max_retries):
+# --------------------------
+# Gemini-based Conversational Chain
+# --------------------------
+
+def create_conversational_chain(vectorstore, gemini_api_key=None):
+    if gemini_api_key:
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-1.5-pro",  # or "gemini-pro"
+                google_api_key=gemini_api_key,
+                convert_system_message_to_human=True,
+                temperature=0.7
             )
-            return response['choices'][0]['message']['content']
-        except RateLimitError:
-            print(f"Rate limit exceeded. Waiting {wait_seconds}s before retry {attempt+1}/{max_retries}...")
-            time.sleep(wait_seconds)
-        except OpenAIError as e:
-            # Other OpenAI errors
-            print(f"OpenAI error: {e}")
-            break
         except Exception as e:
-            print(f"Unexpected error: {e}")
-            break
-    # If all retries fail, return fallback message
-    return "⚠️ Sorry, OpenAI quota exceeded or service unavailable. Please try again later."
+            print(f"Gemini error: {e}")
+            llm = get_dummy_llm()
+    else:
+        llm = get_dummy_llm()
 
-# Example usage inside your chain or function:
-def create_conversational_chain_with_retry(vectorstore, api_key):
-    def llm_function(prompt):
-        return openai_chat_completion_with_fallback(prompt, api_key)
+    return ConversationalRetrievalChain.from_llm(llm=llm, retriever=vectorstore.as_retriever())
 
-    from langchain.chains import ConversationalRetrievalChain
-    return ConversationalRetrievalChain.from_llm(llm=llm_function, retriever=vectorstore.as_retriever())
-
+# Dummy fallback LLM
+def get_dummy_llm():
+    from langchain.schema import LLM
+    class DummyLLM(LLM):
+        def _call(self, prompt, stop=None):
+            return "⚠️ No Gemini API key provided."
+        @property
+        def _identifying_params(self):
+            return {}
+        @property
+        def _llm_type(self):
+            return "dummy"
+    return DummyLLM()
 
 # --------------------------
 # PDF Processing Functions
@@ -60,32 +61,10 @@ def process_pdf(uploaded_file):
     chunks = splitter.split_documents(pages)
 
     return chunks
+
 def get_vector_store(chunks, api_key=None):
-    # You can optionally use api_key inside here if needed.
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     return FAISS.from_documents(chunks, embedding=embeddings)
-
-
-
-
-def create_conversational_chain(vectorstore, api_key=None):
-    if api_key:
-        llm = ChatOpenAI(openai_api_key=api_key, model_name="gpt-3.5-turbo")
-    else:
-        # fallback dummy LLM
-        from langchain.schema import LLM
-        class DummyLLM(LLM):
-            def _call(self, prompt, stop=None):
-                return "⚠️ No OpenAI key provided."
-            @property
-            def _identifying_params(self):
-                return {}
-            @property
-            def _llm_type(self):
-                return "dummy"
-        llm = DummyLLM()
-
-    return ConversationalRetrievalChain.from_llm(llm=llm, retriever=vectorstore.as_retriever())
 
 # --------------------------
 # Health Trackers
@@ -123,4 +102,3 @@ def get_diet_suggestions(water_glasses, sleep_hours):
     tips.append("🔹 Avoid late-night snacks.")
 
     return "\n".join(tips)
-
